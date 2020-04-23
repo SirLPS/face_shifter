@@ -3,6 +3,7 @@
 Created on Mon Feb 10 16:04:43 2020
 a new version of training loss
 @author: lenovo
+
 """
 import torch
 from torch.nn import DataParallel
@@ -22,6 +23,7 @@ import time
 from torch.optim.lr_scheduler import StepLR
 from torch.nn.functional import interpolate as downsample
 from model import Backbone
+from dataloader import FaceEmbed
 
 
 def train(args):
@@ -32,16 +34,16 @@ def train(args):
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    D = MultiscaleDiscriminator(input_nc=3, ndf=64, n_layers=3, use_sigmoid=True)    # pix2pix use MSEloss
+    D = MultiscaleDiscriminator(input_nc=3, ndf=64, n_layers=3, use_sigmoid=False,norm_layer=torch.nn.InstanceNorm2d)    # pix2pix use MSEloss
     G = AAD_Gen()
-    F = Backbone(50, drop_ratio=0, mode='ir_se')
+    F = Backbone(50, drop_ratio=0.6, mode='ir_se')
     F.load_state_dict(torch.load( args.arc_model_path))   
     E = Att_Encoder()
      
-    optimizer_D = torch.optim.Adam(D.parameters(), lr=0.0001, betas=(0.0, 0.999))
+    optimizer_D = torch.optim.Adam(D.parameters(), lr=0.0004, betas=(0.0, 0.999))
     optimizer_GE = torch.optim.Adam([{'params': G.parameters()}, 
                                    {'params': E.parameters()}],
-                                   lr=0.0001, betas=(0.0, 0.999))
+                                   lr=0.0004, betas=(0.0, 0.999))
     
     
     if multi_gpu:
@@ -107,7 +109,8 @@ def train(args):
         trans.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
     ])
-    dataset = ImageFolder(args.data_path, transform=data_transform)  
+    #dataset = ImageFolder(args.data_path, transform=data_transform)  
+    dataset = FaceEmbed(args.data_path)
     data_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
     D.apply(weights_init)
     G.apply(weights_init)
@@ -116,18 +119,18 @@ def train(args):
     for epoch in range(args.start_epoch, args.total_epoch+1):    
         D.train()
         G.train()
-        F.eval()    
+        F.eval()    #   Only extract features!  # input dim=3,256,256   out dim=256 ! 
         E.train()
 
         for batch_idx, data in enumerate(data_loader):
             time_curr = time.time()
             iteration = (epoch - 1) * len(data_loader) + batch_idx
             try:
-                img, label = data
+                source,target, label = data
             
-                source = img[[0,1,2,3],:,:,:].to(device)
-                target = img[[0,4,5,6],:,:,:].to(device)
-                label = torch.LongTensor([1,0,0,0]).to(device)
+                source = source.to(device)
+                target =target.to(device)
+                label = torch.LongTensor(label).to(device)
                    
                 #Zid =F(trans_batch(source))  # bs, 512
                 Zid = F(downsample(source[:,:,50:-10, 30:-30] , size=(112,112)))
@@ -136,10 +139,12 @@ def train(args):
             
                 # train discriminators
                 pred_gen = D(Yst0.detach())
+                #pred_gen = list(map(lambda x: x[0].detach(), pred_gen))
                 pred_real = D(target)
                 optimizer_D.zero_grad() 
                 loss_real, loss_fake = loss_hinge_dis()(pred_gen, pred_real)
                 L_dis = loss_real + loss_fake
+            #    if batch_idx%3==0:
                 L_dis.backward()
                 optimizer_D.step()
                     
@@ -147,9 +152,11 @@ def train(args):
                 # train generators              
                 pred_gen = D(Yst0)
                 L_gen = loss_hinge_gen()(pred_gen)      
+                #L_id = IdLoss()(F(trans_batch(Yst0)), Zid)
                 L_id = IdLoss()(F(downsample(Yst0[:,:,50:-10, 30:-30] , size=(112,112))), Zid)
+                #Zatt = list(map(lambda x: x.detach(), Zatt))
                 L_att = AttrLoss()( E(Yst0), Zatt)
-                L_Rec = RecLoss()(Yst0[:-1,:,:,:], target[:-1,:,:,:], label)
+                L_Rec = RecLoss()(Yst0, target, label)
                 
                 Loss = (L_gen + 10*L_att + 5*L_id + 10*L_Rec).to(device)
                 optimizer_GE.zero_grad() 
@@ -190,7 +197,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--feature_dim', type=int, default=512, help='feature dimension, 256 or 512. original is 256 !!!')
     parser.add_argument('--data_path', type=str, default = '/media/a/HDD/lyfeng/Face_Proj/vgg_face_dataset/new_images')
-    parser.add_argument('--batch_size', type=int, default=7, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=5, help='batch size')
     parser.add_argument('--start_epoch', type=int, default=1, help= 'the start of epoch')
     parser.add_argument('--total_epoch', type=int, default=50, help='total epochs')
     parser.add_argument('--dis_times', type=int, default=1, help='how often update discriminators ')
