@@ -193,10 +193,10 @@ def train(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Pytorch for FaceShifter')
     parser.add_argument('--backbone', type=str, default='resnet50', help='resnet18, resnet50, resnet101, resnet152')
-    parser.add_argument('--arc_model_path', type=str, default='/media/a/HDD/lyfeng/Face_Proj/FaceShifter/src/model_ir_se50.pth', help='path to arcface pretrained model')
+    parser.add_argument('--arc_model_path', type=str, default='/media/a/HDD/Face_Proj/FaceShifter/src/model_ir_se50.pth', help='path to arcface pretrained model')
 
     parser.add_argument('--feature_dim', type=int, default=512, help='feature dimension, 256 or 512. original is 256 !!!')
-    parser.add_argument('--data_path', type=str, default = '/media/a/HDD/lyfeng/Face_Proj/vgg_face_dataset/new_images')
+    parser.add_argument('--data_path', type=str, default = '/media/a/HDD/Face_Proj/vgg_face_dataset/new_images')
     parser.add_argument('--batch_size', type=int, default=5, help='batch size')
     parser.add_argument('--start_epoch', type=int, default=1, help= 'the start of epoch')
     parser.add_argument('--total_epoch', type=int, default=50, help='total epochs')
